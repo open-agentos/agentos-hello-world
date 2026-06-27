@@ -164,6 +164,8 @@ jobs:
     name: Apply status:done on close
     runs-on: ubuntu-latest
     if: github.event_name == 'issues' && github.event.action == 'closed'
+    permissions:
+      issues: write
 
     steps:
       - name: Apply status:done label
