@@ -3,4 +3,4 @@
 .agentOS/keys/
 .agentOS/logs/
 .agentOS-state.json
-.venv/
+.env

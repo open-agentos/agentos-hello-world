@@ -1,0 +1,79 @@
+{
+  "schema_fingerprint": "sha256:2c7c973e64328d7bb732494778f67a6b4e66a218e865e1de48c1d1a7941950f8",
+  "board_id": "PVT_kwDOEbWiOM4Bbzmx",
+  "generated_at": "2026-06-27T09:07:43.255354+00:00",
+  "fields": {
+    "Role": {
+      "node_id": "PVTSSF_lADOEbWiOM4BbzmxzhWhZcQ",
+      "type": "single_select",
+      "options": {
+        "Builder": "242f9372",
+        "Reviewer": "fcce7ffb",
+        "Docs": "6ea80305",
+        "Watcher": "f65ade6d"
+      }
+    },
+    "Agent Status": {
+      "node_id": "PVTSSF_lADOEbWiOM4BbzmxzhWhZcU",
+      "type": "single_select",
+      "options": {
+        "Todo": "e362fbe3",
+        "In progress": "843f425e",
+        "In review": "db0e41ae",
+        "Changes requested": "1a02a2dc",
+        "Approved": "12ca35db",
+        "Blocked": "b6e1246b",
+        "Done": "4b8a881e"
+      }
+    },
+    "Max turns": {
+      "node_id": "PVTF_lADOEbWiOM4BbzmxzhWhZdM",
+      "type": "number"
+    },
+    "Model": {
+      "node_id": "PVTSSF_lADOEbWiOM4BbzmxzhWhZdQ",
+      "type": "single_select",
+      "options": {
+        "claude-haiku": "4f896ff8",
+        "claude-sonnet": "7814dc5d",
+        "gpt-4o-mini": "233054cd",
+        "gemini-flash": "fd72604c",
+        "kimi-k2": "cd331575"
+      }
+    },
+    "Outcome": {
+      "node_id": "PVTSSF_lADOEbWiOM4BbzmxzhWhZds",
+      "type": "single_select",
+      "options": {
+        "Provisional": "05ad04a1",
+        "Merged": "815eae55",
+        "Closed unmerged": "27a2cfe2",
+        "CI failed": "ef81ff8e",
+        "Reverted": "b8d6ee51",
+        "Abandoned": "807eb340"
+      }
+    },
+    "Clean exit": {
+      "node_id": "PVTSSF_lADOEbWiOM4BbzmxzhWhZdw",
+      "type": "single_select",
+      "options": {
+        "Clean": "8b788ee2",
+        "Crashed": "6107a4bb",
+        "Max turns": "adb692f6",
+        "Infra failure": "00afdb7c"
+      }
+    },
+    "Cost to date": {
+      "node_id": "PVTF_lADOEbWiOM4BbzmxzhWhZd0",
+      "type": "number"
+    },
+    "Turns": {
+      "node_id": "PVTF_lADOEbWiOM4BbzmxzhWhZd4",
+      "type": "number"
+    },
+    "Attempts": {
+      "node_id": "PVTF_lADOEbWiOM4BbzmxzhWhZd8",
+      "type": "number"
+    }
+  }
+}
