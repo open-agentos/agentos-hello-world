@@ -8,7 +8,7 @@
 # Then provision your repository with:
 #   agentOS apply --repo owner/my-repo
 
-specVersion: "1.0"
+specVersion: "1.1"
 specId: "github-agentOS"
 
 metadata:
@@ -94,14 +94,16 @@ agents:
   #     - status:approved
   #   branch_prefix: "agent/docs/"
 
-  # - id: planner
-  #   description: >
-  #     Decomposes complex issues before passing to builder. Reuses builder App.
-  #   create_app: false
-  #   reuse_app: builder
-  #   triggers:
-  #     - status:planning
-  #   branch_prefix: "agent/planner/"
+  - id: planner
+    description: >
+      Writes an in-body plan before the builder runs. Reuses builder App credentials.
+    create_app: false
+    reuse_app: builder
+    permissions:
+      issues: write
+    triggers:
+      - status:plan
+    branch_prefix: ""
 
 # ============================================================
 # RUNTIME
@@ -130,6 +132,15 @@ runtime:
   branch_convention: "agent/{role}/{issue_number}-{slug}"
   receipt_comment_marker: "<!-- agentOS:run-receipt -->"
 
+governance:
+  planning:
+    enabled: true
+    required: false
+  approvers:
+    - admin
+  commands:
+    approve: "/approve-plan"
+    request_changes: "/request-changes"
 # ============================================================
 # LABELS
 # Organised into axes. The full label name is "{axis}:{value}".
@@ -139,6 +150,7 @@ runtime:
 labels:
 
   # ---- STATUS AXIS — PRIMARY ROUTING TRIGGER ----
+
   - axis: status
     description: "Issue lifecycle state. Changing this label drives the agent state machine."
     values:
@@ -172,10 +184,15 @@ labels:
         description: "Cannot proceed without human intervention"
         routes_to: null           # Human resolves
 
-      - name: planning
+      - name: plan
         color: "bfd4f2"
-        description: "Needs decomposition before builder can start"
-        routes_to: null           # planner role handles this if enabled
+        description: "Dispatches planner agent"
+        routes_to: planner
+
+      - name: plan-review
+        color: "e4e669"
+        description: "Plan written; awaiting admin /approve-plan"
+        routes_to: null
 
       - name: done
         color: "0e8a16"
@@ -201,6 +218,10 @@ labels:
       - name: watcher
         color: "0075ca"
         description: "Watcher agent is the current owner"
+
+      - name: planner
+        color: "c2e0c6"
+        description: "Planner agent is the current owner"
 
   # ---- TYPE AXIS — ISSUE CLASSIFICATION ----
   - axis: type
@@ -283,6 +304,8 @@ board:
           color: GREEN
         - name: Watcher
           color: PURPLE
+        - name: Planner
+          color: GREEN
 
     - name: Agent Status
       type: single_select
@@ -300,6 +323,10 @@ board:
           color: ORANGE
         - name: Approved
           color: GREEN
+        - name: Plan
+          color: BLUE
+        - name: Plan review
+          color: YELLOW
         - name: Blocked
           color: RED
         - name: Done

@@ -9,6 +9,19 @@ Implements GitHub issues by writing code, then opens a pull request for review.
 - Do not commit secrets, .env files, or *.pem files
 - Do not modify .github/ workflow files
 
+## Inputs — Plan Consumption
+
+If the issue body contains a plan block:
+
+<!-- AGENTOS:PLAN:BEGIN -->
+...
+<!-- AGENTOS:PLAN:END -->
+
+treat the content between the markers as the **authoritative specification**.
+Implement exactly what the plan describes — no more, no less. If no plan block
+is present (planning is optional or disabled for this issue), fall back to the
+full issue body as the specification.
+
 ## Output Format
 - Open a PR from branch `agent/builder/{issue_number}-{slug}`
 - PR title: mirrors the issue title exactly

@@ -11,6 +11,8 @@ name: Agent Orchestrator
 on:
   issues:
     types: [opened, labeled, closed]
+  issue_comment:
+    types: [created]
   pull_request:
     types: [labeled]
 
@@ -18,7 +20,7 @@ on:
 # Shared environment variables available to all jobs
 # ---------------------------------------------------------------------------
 env:
-  SPEC_VERSION: "1.0"
+  SPEC_VERSION: "1.1"
   TARGET_REPO: ${{ github.repository }}
 
 jobs:
@@ -77,14 +79,8 @@ jobs:
             else
               echo "AGENT_ROLE=docs" >> "$GITHUB_ENV"
             fi
-          elif [ "$LABEL" = "status:planning" ]; then
-            # Skip if planner agent is not configured
-            if [ -z "${{ vars.PLANNER_CONFIGURED }}" ]; then
-              echo "Planner agent not configured — skipping."
-              echo "AGENT_ROLE=skip" >> "$GITHUB_ENV"
-            else
-              echo "AGENT_ROLE=planner" >> "$GITHUB_ENV"
-            fi
+          elif [ "$LABEL" = "status:plan" ]; then
+            echo "AGENT_ROLE=planner" >> "$GITHUB_ENV"
           else
             echo "No matching role for label '$LABEL' — skipping."
             echo "AGENT_ROLE=skip" >> "$GITHUB_ENV"
@@ -144,7 +140,85 @@ jobs:
           AGENT_MAX_TURNS: ${{ env.AGENT_MAX_TURNS }}
           LLM_API_KEY: ${{ env.LLM_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  # ---------------------------------------------------------------------------
+  # plan-orchestrator — handles /approve-plan and /request-changes comments
+  # ---------------------------------------------------------------------------
+  plan-orchestrator:
+    name: Approval gate for planner
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      (startsWith(github.event.comment.body, '/approve-plan') ||
+        startsWith(github.event.comment.body, '/request-changes'))
+    concurrency:
+      group: planner-${{ github.event.issue.number }}
+      cancel-in-progress: false
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Dispatch-time approval gate
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue_number = context.payload.issue.number;
+            const commenter = context.payload.comment.user.login;
+            const body = context.payload.comment.body.trim();
+
+            // 1. Verify commenter has admin permission
+            const perm = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner, repo: context.repo.repo, username: commenter
+            });
+            if (!['admin'].includes(perm.data.permission)) {
+              console.log(`${commenter} lacks admin permission — ignoring`);
+              return;
+            }
+
+            // 2. Check plan block is present
+            const issue = await github.rest.issues.get({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number
+            });
+            if (!issue.data.body?.includes('<!-- AGENTOS:PLAN:BEGIN -->')) {
+              console.log('No plan block found — ignoring');
+              return;
+            }
+
+            // 3. Check approval postdates latest plan receipt
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number
+            });
+            const planReceipt = comments.data
+              .filter(c => c.body.includes('<!-- agentOS:run-receipt -->') && c.body.includes('planner'))
+              .pop();
+            if (planReceipt && new Date(context.payload.comment.created_at) < new Date(planReceipt.created_at)) {
+              console.log('Approval predates latest plan receipt — stale, ignoring');
+              return;
+            }
+
+            // 4. Act on command
+            if (body.startsWith('/approve-plan')) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number, name: 'status:plan-review'
+              }).catch(() => {});
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number, labels: ['status:todo']
+              });
+            } else if (body.startsWith('/request-changes')) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number, name: 'status:plan-review'
+              }).catch(() => {});
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number, labels: ['status:plan']
+              });
+            }
+            
   # ---------------------------------------------------------------------------
   # post-run-receipt — calls run-receipt.yml after orchestrate finishes
   # ---------------------------------------------------------------------------
