@@ -368,7 +368,7 @@ jobs:
           PLANNER_APP_ID: ${{ secrets.BUILDER_APP_ID }}
           PLANNER_PRIVATE_KEY: ${{ secrets.BUILDER_PRIVATE_KEY }}
         run: |
-          AGENT_TOKEN=*** scripts/github_token.py "$AGENT_ROLE")
+          AGENT_TOKEN=$(python3 scripts/github_token.py "$AGENT_ROLE")
           echo "::add-mask::$AGENT_TOKEN"
           echo "GITHUB_TOKEN=*** >> "$GITHUB_ENV"
 
@@ -446,7 +446,7 @@ jobs:
           PLANNER_APP_ID: ${{ secrets.BUILDER_APP_ID }}
           PLANNER_PRIVATE_KEY: ${{ secrets.BUILDER_PRIVATE_KEY }}
         run: |
-          AGENT_TOKEN=*** scripts/github_token.py "planner")
+          AGENT_TOKEN=$(python3 scripts/github_token.py "planner")
           echo "::add-mask::$AGENT_TOKEN"
           echo "GITHUB_TOKEN=*** >> "$GITHUB_ENV"
 
@@ -537,7 +537,7 @@ jobs:
           BOARD_APP_ID: ${{ secrets.BOARD_APP_ID }}
           BOARD_PRIVATE_KEY: ${{ secrets.BOARD_PRIVATE_KEY }}
         run: |
-          BOARD_TOKEN=*** scripts/github_token.py board)
+          BOARD_TOKEN=$(python3 scripts/github_token.py board)
           echo "::add-mask::$BOARD_TOKEN"
           echo "GITHUB_TOKEN=*** >> "$GITHUB_ENV"
 
