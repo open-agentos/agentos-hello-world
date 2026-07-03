@@ -19,18 +19,23 @@ process — the system is entirely event-driven and stateless between runs.
 
 | Role | Triggered by | Can push code? | Notes |
 |---|---|---|---|
-| builder | status:todo, status:changes-requested | Yes | Power role |
+| planner | status:plan | No | In-body planning, issues:write only |
+| builder | status:todo, status:changes-requested | Yes | Power role; gated by approval |
 | reviewer | status:in-review | No (intentional) | Cannot push |
 | watcher | schedule / settlement | No | Minimal footprint |
 | board | PR close | No | Projects v2 only |
 | docs | status:approved (if enabled) | Yes | Reuses builder App |
-| planner | status:planning (if enabled) | Yes | Reuses builder App |
+| janitor | intake workflow (wild PRs) | Yes (autofix commits only) | Deterministic tools; no issues:write |
+| archaeologist | status:intake | No | Pure function; NO GitHub token; mediated writes |
 
 ## State Machine
 
 ```
-status:planning         -> planner
-status:todo             -> builder
+status:plan             -> planner  (writes plan into issue body)
+status:plan-review      -> (no agent; awaiting /approve-plan)
+status:intake           -> archaeologist (wild PR; janitors + reconstruction)
+status:intake-review    -> (no agent; awaiting /approve-intent)
+status:todo             -> builder  (only after approval gate passes)
 status:in-progress      -> (informational)
 status:in-review        -> reviewer
 status:changes-requested -> builder
@@ -38,6 +43,22 @@ status:approved         -> docs (if enabled)
 status:blocked          -> HUMAN
 status:done             -> terminal
 ```
+
+Approval gate: the builder fires on `status:todo` only when an admin has commented
+`/approve-plan` after the latest plan receipt. Applying `status:todo` without a
+valid approval results in no build dispatched (silent skip).
+
+Wild lane (intake): a PR with no linked issue gets a system-owned stub issue
+(`source:wild`) which enters at `status:intake`. Janitors run, the archaeologist
+reconstructs intent into the stub body, and `/approve-intent` admits the stub to
+`status:in-review`. Wild governance: no auto-merge, human merges, max 2 review
+cycles. See SPEC.md §12.
+
+Commands handled by the orchestrator on issue comments:
+- `/approve-plan` — approve plan and dispatch builder (admin only, permission verified live)
+- `/request-changes <notes>` — return to status:plan for revision (admin only)
+- `/approve-intent` — approve a wild stub's reconstruction; enters review loop (admin only, must postdate the latest push)
+- `/dismiss-findings <category> --reason <text>` — dismiss an intake findings category (recorded in the settlement record)
 
 ## Execution Protocol (Builder)
 
@@ -94,7 +115,7 @@ AGENT_MAX_TURNS     Turn budget (if set)
 ## Runner
 
 ```
-claude -p --dangerously-skip-permissions --output-format json
+cat agents/$AGENT_ROLE/AGENT.md | claude -p --dangerously-skip-permissions --output-format json --max-turns $AGENT_MAX_TURNS
 ```
 
 Replace this with your actual runner command. The runner must:
