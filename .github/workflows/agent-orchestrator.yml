@@ -370,7 +370,7 @@ jobs:
         run: |
           AGENT_TOKEN=$(python3 scripts/github_token.py "$AGENT_ROLE")
           echo "::add-mask::$AGENT_TOKEN"
-          echo "GITHUB_TOKEN=*** >> "$GITHUB_ENV"
+          echo "GITHUB_TOKEN=$AGENT_TOKEN" >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
       # Install Claude Code CLI (required on ubuntu-latest runners)
@@ -448,7 +448,7 @@ jobs:
         run: |
           AGENT_TOKEN=$(python3 scripts/github_token.py "planner")
           echo "::add-mask::$AGENT_TOKEN"
-          echo "GITHUB_TOKEN=*** >> "$GITHUB_ENV"
+          echo "GITHUB_TOKEN=$AGENT_TOKEN" >> "$GITHUB_ENV"
 
       - name: Install Claude CLI
         run: npm install -g @anthropic-ai/claude-code
@@ -539,7 +539,7 @@ jobs:
         run: |
           BOARD_TOKEN=$(python3 scripts/github_token.py board)
           echo "::add-mask::$BOARD_TOKEN"
-          echo "GITHUB_TOKEN=*** >> "$GITHUB_ENV"
+          echo "GITHUB_TOKEN=$AGENT_TOKEN" >> "$GITHUB_ENV"
 
       - name: Add issue to project board
         run: |
