@@ -3,18 +3,18 @@
 # Human-readable, git-diffable, versioned.
 #
 # Import this file into your project with:
-#   agentOS init --from github:open-agentos/spec@v1.0
+#   agentOS init --from github:open-agentos/agentos@v1.2.0
 #
 # Then provision your repository with:
 #   agentOS apply --repo owner/my-repo
 
-specVersion: "1.1"
+specVersion: "1.2"
 specId: "github-agentOS"
 
 metadata:
   name: "GitHub AgentOS"
   description: "Label-driven multi-agent orchestration on GitHub"
-  homepage: "https://github.com/open-agentos/spec"
+  homepage: "https://github.com/open-agentos/agentos"
   license: "MIT"
   authors:
     - name: "Open AgentOS Contributors"
@@ -96,14 +96,48 @@ agents:
 
   - id: planner
     description: >
-      Writes an in-body plan before the builder runs. Reuses builder App credentials.
+      Expands a thin issue into a concrete, file-level plan written between
+      <!-- AGENTOS:PLAN:BEGIN/END --> markers in the issue body. Runs on
+      status:plan. Needs issues:write only — no code access.
+      NOTE: If provisioning a fifth GitHub App is too heavyweight, run this role
+      under an issues-scoped builder token and split it out later (see TODO below).
+      TODO: provision a dedicated Planner GitHub App with issues:write only.
     create_app: false
-    reuse_app: builder
+    reuse_app: builder          # Temporary — replace with create_app: true once dedicated App is provisioned
     permissions:
-      issues: write
+      issues: write             # Sufficient: reads issue body/comments, writes body and comment
     triggers:
       - status:plan
-    branch_prefix: ""
+    branch_prefix: ""           # Planner does not open branches
+
+  - id: janitor
+    description: >
+      Deterministic cleanup tooling run against wild branches during
+      status:intake (SPEC.md §12.5). Autofix janitors push tool-generated,
+      semantics-preserving commits under this App identity; report janitors
+      emit check runs and findings. Deliberately narrow permission set:
+      NO issues:write, NO workflows:write, no review or approval capability
+      (SPEC.md §12.9.2).
+    create_app: true
+    permissions:
+      contents: write           # Push janitor commits to wild PR branches
+      checks: write             # Publish report-tier findings as check runs
+      pull_requests: write      # Comment on PRs (findings summaries)
+      metadata: read
+    triggers: []                # Invoked by the intake workflow, not labels
+    branch_prefix: ""           # Janitors push to the author's branch, never their own
+
+  - id: archaeologist
+    description: >
+      Reconstructs intent from unplanned ("wild") pull requests (SPEC.md §12.6).
+      A pure function: diff and context in, one schema-validated JSON payload
+      out. Holds NO GitHub token and has NO App identity — the orchestrator
+      performs every side effect on its behalf. The runner MUST NOT grant it
+      shell execution, network access, or any tool with side effects.
+    create_app: false           # Intentionally no App: mediated writes only
+    triggers:
+      - status:intake           # Dispatched after janitors settle and tripwires pass
+    branch_prefix: ""           # Archaeologist does not open branches
 
 # ============================================================
 # RUNTIME
@@ -118,29 +152,155 @@ agents:
 # Optional env vars (set if present in config):
 #   LLM_PROVIDER, LLM_MODEL, LLM_API_KEY,
 #   AGENT_MAX_TURNS, OPS_REPO, OPS_REPO_TOKEN
-# # ============================================================
-# runtime:
-#   runner: "hermes run"           # Replace with your agent runner
-#   max_turns_default: 40
-#   branch_convention: "agent/{role}/{issue_number}-{slug}"
-#   receipt_comment_marker: "<!-- agentOS:run-receipt -->"
-
+# ============================================================
 runtime:
-  runner: "claude -p --dangerously-skip-permissions --output-format json"
-  model: "claude-sonnet-4-6"
+  runner: "cat agents/$AGENT_ROLE/AGENT.md | claude -p --dangerously-skip-permissions --output-format json --max-turns $AGENT_MAX_TURNS"  # Replace with your agent runner
   max_turns_default: 40
   branch_convention: "agent/{role}/{issue_number}-{slug}"
   receipt_comment_marker: "<!-- agentOS:run-receipt -->"
 
+# ============================================================
+# GOVERNANCE
+# Controls the planning stage and approval gate that sit in
+# front of the builder. All fields have happy-path defaults;
+# zero config is needed to run with planning required.
+# ============================================================
 governance:
-  planning:
-    enabled: true
-    required: false
-  approvers:
-    - admin
-  commands:
-    approve: "/approve-plan"
-    request_changes: "/request-changes"
+  # required  — status:plan must be applied and a plan approved before builder runs.
+  # optional  — issues may go straight to status:todo and build without a plan.
+  # off       — planning disabled entirely; legacy builder behaviour.
+  planning: required
+
+  # Collaborator permission levels whose /approve-plan comments authorise a build.
+  # GitHub permission levels: admin, maintain, write, triage, read.
+  approvers: [admin]
+
+  # Slash-command the orchestrator listens for to approve a plan.
+  approve_command: "/approve-plan"
+
+  # Slash-command that sends an issue back to status:plan for replanning.
+  changes_command: "/request-changes"
+
+  # Marker pair used to delimit the plan block in the issue body.
+  # The planner MUST replace content between these markers on each run (never append).
+  plan_begin_marker: "<!-- AGENTOS:PLAN:BEGIN -->"
+  plan_end_marker: "<!-- AGENTOS:PLAN:END -->"
+
+  # Provenance-weighted governance for wild work (SPEC.md §12.9).
+  # Issues carrying source:wild get stricter downstream defaults; each
+  # field is overridable only explicitly.
+  wild:
+    auto_merge: false                       # Regardless of repo default
+    final_approval: human                   # A human merges, always
+    max_review_cycles: 2                    # Tighter than the planned default of 3
+    changes_requested_routes_to: builder    # builder | author
+
+# ============================================================
+# INTAKE
+# The unplanned ("wild") PR pipeline: classification, stub
+# issues, janitors, the archaeologist, and /approve-intent.
+# See SPEC.md §12. Shipped enabled with every janitor in
+# report mode — behaviourally invisible (no pushes) while
+# still exercising classification and the human gate.
+# ============================================================
+intake:
+  enabled: true
+
+  # PR authors ignored by intake entirely (bot flood guard, SPEC.md §12.2.2).
+  exclude_actors: ["dependabot[bot]", "renovate[bot]"]
+
+  # Human PRs with a closing-linked issue are planned work done manually.
+  # ignore                — intake does not touch them (default)
+  # janitors-report-only  — run report-tier janitors (no pushes, no archaeology)
+  linked_prs: ignore
+
+  # Quiet period (seconds, no author pushes) before autofix janitors and
+  # the archaeologist run. Report-mode checks may run immediately.
+  settle_seconds: 300
+
+  # Max full janitor-sequence passes before declaring non-convergence:
+  # revert all janitor commits, demote to report mode, file a config bug.
+  convergence_passes: 2
+
+  # auto — run the repo test suite before/after autofix as a behavioural
+  #        oracle (pass→fail reverts and demotes). off — skip.
+  test_oracle: auto
+
+  # Above this diff size, skip interpretation: facts-only reconstruction,
+  # confidence pinned to low.
+  max_diff_lines: 6000
+
+  # Max archaeologist runs per stub; beyond it, facts-only mode.
+  max_recon_runs: 5
+
+  # Archaeologist model override; null = orchestrator default.
+  model: null
+
+  # May the PR author approve their own intent (if they hold the authoriser
+  # role)? Set false on mixed teams to require a second person.
+  # `agentOS init` sets this from repo collaborator count.
+  approve_intent_self: true
+
+  # Deterministic path rules evaluated against the diff's file list before
+  # any agent runs. Any match routes the stub to status:blocked (SPEC.md §12.6.2).
+  tripwire_paths:
+    - ".github/workflows/**"
+    - ".github/actions/**"
+    - "agentOS.yaml"
+    - ".agentOS/**"
+
+  # Janitor sequence, run serially in declared order (SPEC.md §12.5).
+  # mode: autofix — pushes tool-generated, semantics-preserving commits
+  #       report  — check runs + findings only (no pushes)
+  #       off     — disabled
+  # block_on: critical — route stub to status:blocked if critical findings
+  #           any      — block on any findings; omit to never block on this janitor
+  # Security tools are report-only, always: a janitor MUST NOT apply
+  # autofixes offered by a security tool (SPEC.md §12.5.2).
+  # init posture: every janitor ships in report mode; operators graduate
+  # individual tools to autofix once trusted.
+  #
+  # Example fully-configured operator stack (uncomment and adjust modes):
+  # janitors:
+  #   - {name: format,  run: "ruff format .",               mode: autofix}
+  #   - {name: imports, run: "ruff check --select I --fix", mode: autofix}
+  #   - {name: lint,    run: "ruff check",                  mode: report}
+  #   - {name: semgrep, run: "semgrep ci",                  mode: report, block_on: critical}
+  #   - {name: secrets, run: "gitleaks detect",             mode: report, block_on: any}
+  #   - {name: deps,    run: "pip-audit",                   mode: report}
+  janitors:
+    - name: format
+      run: "<tool command>"     # e.g. "ruff format ." or "prettier --write ."
+      mode: report
+    - name: semgrep
+      run: "semgrep --config auto"
+      mode: report
+
+  # Per-path janitor mode ratchet (optional). Glob keys override the
+  # global janitor mode for files matching that path. Use to keep legacy
+  # or generated directories report-only even when global mode is autofix.
+  # Example:
+  # paths:
+  #   "legacy/**":    {janitors_mode: report}
+  #   "generated/**": {janitors_mode: off}
+
+  # Fork-specific overrides (SPEC.md §12.2.5).
+  # autofix is always false on forks — the spec states this as policy, not
+  # as a platform accident. Not configurable upward.
+  forks:
+    autofix: false
+
+  # Report-to-work: how report findings become follow-on issues at
+  # settlement (SPEC.md §12.8.4).
+  # file:  auto — file an issue per category at settlement
+  # start: auto — apply status:todo on the spawned issue (still passes the
+  #        planned lane's approval gates); manual — file visibly, human launches.
+  reports:
+    lint:     {file: auto, start: auto}
+    tests:    {file: auto, start: auto}
+    security: {file: auto, start: manual}
+    deps:     {file: auto, start: manual}
+
 # ============================================================
 # LABELS
 # Organised into axes. The full label name is "{axis}:{value}".
@@ -150,7 +310,6 @@ governance:
 labels:
 
   # ---- STATUS AXIS — PRIMARY ROUTING TRIGGER ----
-
   - axis: status
     description: "Issue lifecycle state. Changing this label drives the agent state machine."
     values:
@@ -185,14 +344,24 @@ labels:
         routes_to: null           # Human resolves
 
       - name: plan
-        color: "bfd4f2"
-        description: "Dispatches planner agent"
-        routes_to: planner
+        color: "c5def5"
+        description: "Expand this issue into a plan (planner entry point)"
+        routes_to: planner        # Dispatches planner on label applied
 
       - name: plan-review
         color: "e4e669"
-        description: "Plan written; awaiting admin /approve-plan"
-        routes_to: null
+        description: "Plan written into body; awaiting admin /approve-plan"
+        routes_to: null           # No agent; human approval required
+
+      - name: intake
+        color: "c5b8f0"
+        description: "Wild PR classified; janitors running or settling; archaeologist queued"
+        routes_to: archaeologist  # Dispatched after janitors settle and tripwires pass
+
+      - name: intake-review
+        color: "e4d069"
+        description: "Reconstruction written; awaiting /approve-intent"
+        routes_to: null           # No agent; human approval required
 
       - name: done
         color: "0e8a16"
@@ -220,8 +389,16 @@ labels:
         description: "Watcher agent is the current owner"
 
       - name: planner
-        color: "c2e0c6"
+        color: "f9d0c4"
         description: "Planner agent is the current owner"
+
+      - name: janitor
+        color: "c2e0c6"
+        description: "Janitor tooling is running on the linked wild PR"
+
+      - name: archaeologist
+        color: "d4c5f9"
+        description: "Archaeologist is reconstructing intent for this stub"
 
   # ---- TYPE AXIS — ISSUE CLASSIFICATION ----
   - axis: type
@@ -264,6 +441,10 @@ labels:
         color: "bfd4f2"
         description: "Created by a human"
 
+      - name: wild
+        color: "d4c5f9"
+        description: "Created by the intake classifier from an unplanned pull request"
+
   # ---- FOLLOW-ON AXIS — ASYNC HANDOFF SIGNALS ----
   # Routes_to is configurable. Null = informational only.
   # Set routes_to to a role id to trigger that agent when the label is applied.
@@ -274,6 +455,21 @@ labels:
         color: "fef2c0"
         description: "Documentation should be updated as a follow-on action"
         routes_to: null           # Set to "docs" to auto-trigger docs agent
+
+      - name: needs-cleanup
+        color: "fef2c0"
+        description: "Report-tier lint/format/dead-code findings from intake"
+        routes_to: null           # Consumed by watcher at settlement (SPEC.md §12.8)
+
+      - name: needs-tests
+        color: "fef2c0"
+        description: "Characterisation-test work for code touched by a wild PR"
+        routes_to: null           # Consumed by watcher at settlement (SPEC.md §12.8)
+
+      - name: needs-security-review
+        color: "b60205"
+        description: "Semgrep / dependency-audit findings from intake"
+        routes_to: null           # Consumed by watcher at settlement (SPEC.md §12.8)
 
 # ============================================================
 # BOARD
@@ -305,7 +501,11 @@ board:
         - name: Watcher
           color: PURPLE
         - name: Planner
+          color: PINK
+        - name: Janitor
           color: GREEN
+        - name: Archaeologist
+          color: PURPLE
 
     - name: Agent Status
       type: single_select
@@ -323,12 +523,18 @@ board:
           color: ORANGE
         - name: Approved
           color: GREEN
+        - name: Blocked
+          color: RED
+        - name: Planning
+          color: BLUE
         - name: Plan
           color: BLUE
         - name: Plan review
           color: YELLOW
-        - name: Blocked
-          color: RED
+        - name: Intake
+          color: PURPLE
+        - name: Intake review
+          color: YELLOW
         - name: Done
           color: PURPLE
 
@@ -460,5 +666,5 @@ plugins: []
 # Example — uncomment to activate the reference 3Qs plugin:
 # plugins:
 #   - name: three-questions
-#     source: github:open-agentos/spec//plugins/three-questions@v1.0
+#     source: github:open-agentos/agentos//plugins/three-questions@v1.2.0
 #     description: "Daily 3Qs intelligence plugin — phase labels, watcher schedule"
