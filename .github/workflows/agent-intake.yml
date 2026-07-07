@@ -549,6 +549,9 @@ jobs:
           ADD=$(python3 -c "import json;print(json.load(open('/tmp/facts.json'))['additions'])")
           DEL=$(python3 -c "import json;print(json.load(open('/tmp/facts.json'))['deletions'])")
           echo "diff_lines=$((ADD + DEL))" >> "$GITHUB_OUTPUT"
+      
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code
 
       - name: Run archaeologist (pure function — NO GitHub token)
         id: recon
