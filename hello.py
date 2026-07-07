@@ -1,7 +1,7 @@
 import time
 
 def farewell():
-    time.sleep(2)  # Wait 2 seconds
+    time.sleep(1)  # Wait 1 seconds
     print('Goodbye, World!')
 
 
