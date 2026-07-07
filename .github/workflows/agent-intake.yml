@@ -517,7 +517,10 @@ jobs:
       # Keyed on the stub issue, as for the planner (§12.6.6).
       group: intake-archaeologist-${{ needs.classify.outputs.stub_number }}
       cancel-in-progress: true
-
+    permissions:
+          issues: write
+          pull-requests: read
+          contents: read
     env:
       LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
       LLM_MODEL: ${{ vars.INTAKE_MODEL || vars.LLM_MODEL }}
@@ -535,6 +538,20 @@ jobs:
 
       - name: Install script dependencies
         run: pip install -r scripts/requirements.txt
+
+      - name: Mint watcher token
+        id: mint-token
+        env:
+          WATCHER_APP_ID: ${{ secrets.WATCHER_APP_ID }}
+          WATCHER_PRIVATE_KEY: ${{ secrets.WATCHER_PRIVATE_KEY }}
+        run: |
+          if [ -n "$WATCHER_APP_ID" ]; then
+            WATCHER_TOKEN=$(python3 scripts/github_token.py watcher)
+            echo "::add-mask::$WATCHER_TOKEN"
+            echo "WATCHER_TOKEN=$WATCHER_TOKEN" >> "$GITHUB_ENV"
+          else
+            echo "WATCHER_TOKEN=$WATCHER_TOKEN" >> "$GITHUB_ENV"
+          fi
 
       - name: Compute facts block (deterministic — before any model runs)
         id: facts
@@ -582,7 +599,7 @@ jobs:
           WATCHER_APP_ID: ${{ secrets.WATCHER_APP_ID }}
           WATCHER_PRIVATE_KEY: ${{ secrets.WATCHER_PRIVATE_KEY }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ env.WATCHER_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
