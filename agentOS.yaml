@@ -66,6 +66,7 @@ agents:
       Plugins that add scheduled behaviours (e.g. daily digests) run as watcher.
     create_app: true
     permissions:
+      pull_requests: write
       issues: write
       metadata: read
     triggers: []              # Invoked by schedule or settlement, not labels
