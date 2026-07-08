@@ -91,8 +91,6 @@ jobs:
 
       - name: Mint watcher token
         id: mint-token
-        # Fork PRs get no secrets under the pull_request event for
-        # first-time contributors; same-repo PRs mint normally.
         env:
           WATCHER_APP_ID: ${{ secrets.WATCHER_APP_ID }}
           WATCHER_PRIVATE_KEY: ${{ secrets.WATCHER_PRIVATE_KEY }}
@@ -104,6 +102,11 @@ jobs:
           else
             echo "WATCHER_TOKEN=$WATCHER_TOKEN" >> "$GITHUB_ENV"
           fi
+
+      - name: Verify and transition
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ env.WATCHER_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Classify and manage stub lifecycle
         id: classify
